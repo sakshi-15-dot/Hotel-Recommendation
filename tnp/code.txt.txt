@@ -1,0 +1,253 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+import numpy as np
+from collections import defaultdict
+import csv
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# In[2]:
+
+
+temp_dict={}
+with open('Input/users.txt') as f: # here we saw that, user.txt have string categorical data, so have been encoded,
+    next(f)                  # we can also do this via using scikit learn, or pandas, but for simplicity, it has been done here.
+    for lines in f:
+        line=lines.split()
+        if line[2]=='female':
+            line[2]=1
+        else:
+            line[2]=0
+        line=list(map(int, line))
+        temp_dict[line[0]]=line[1:]
+        
+hotel_dict={}
+with open('Input/hotels.txt') as f:
+    next(f)
+    for lines in f:
+        line=lines.split()
+        hotel_dict[int(line[0])]=float(line[1])
+        
+final_data=[]
+global_hist={}
+with open('Input/activity.txt') as f:
+    next(f)
+    for lines in f:
+        line=lines.split()
+        line=list(map(int, line))
+        x=[line[0]]+temp_dict[line[0]]+[hotel_dict[line[1]],line[1]] #0:userid, 1:continent, 2:gender, 3:rating, 4:hotel
+        if line[0] in global_hist.keys():
+            global_hist[line[0]].append(line[1])
+        else:
+            global_hist[line[0]]=[line[1]]
+        final_data.append(x)
+
+#storing data in csv for visualisation purpose, though it's possible to modify here also without storing.
+with open("Input/data.csv", "w") as f:
+    writer = csv.writer(f)
+    writer.writerow(['userid','continent','gender','rating','hotel'])
+    writer.writerows(final_data)
+    
+#prepared data for Machine Learning Analysis        
+Y=[x[4] for x in final_data]
+X=[x[:4] for x in final_data]
+
+
+# In[3]:
+
+
+# pandas, numpy, matplotlib, seaborn
+import pandas as pd
+from pandas import Series,DataFrame
+import numpy as np
+import matplotlib.pyplot as plt
+get_ipython().run_line_magic('matplotlib', 'inline')
+import seaborn as sns
+sns.set_style('whitegrid')
+trip_df = pd.read_csv('input/data.csv')
+trip_df.head()
+
+
+# In[4]:
+
+
+X=np.array(X)
+Y=np.array(Y)
+N = 50
+fig, ax = plt.subplots(figsize=(12,12))
+x = Y
+y = X[:,0]
+colors = X[:,3]
+ax.scatter(x, y, c=colors,alpha=10.0)
+ax.set_xlabel("Hotel")
+ax.set_ylabel("user id")
+ax.grid(True)
+
+plt.show()
+
+
+# In[5]:
+
+
+#next step is to drop userid, as it won't play any role, unless we want to visualize per user.
+trip_df = trip_df.drop(['userid'], axis=1)
+
+
+# In[6]:
+
+
+# Let's evaluate correlation among all variables.
+f, ax = plt.subplots(figsize=(8, 8))
+corr = trip_df.corr()
+sns.heatmap(corr, mask=np.zeros_like(corr, dtype=np.bool), cmap=sns.diverging_palette(220, 10, as_cmap=True),
+            square=True, ax=ax)
+
+
+# In[7]:
+
+
+fig, (axis1,axis2) = plt.subplots(2,1,figsize=(15,10))
+
+bookings_df = trip_df[trip_df["gender"] == 1] # 0:Male, 1:Female #change it if needed for analysis
+
+# What are the most continents one gender travel from?
+at=sns.countplot('continent',data=bookings_df.sort_values(by=['continent']),ax=axis1,palette="Set3")
+at.set(xlabel='Continent', ylabel='Count based on Gender')
+
+
+# What are the most hotel one gender travel to?
+ap=sns.countplot('hotel',data=bookings_df.sort_values(by=['hotel']),ax=axis2,palette="Set3")
+ap.set(xlabel='Hotel', ylabel='Count based on Gender')
+
+
+# In[8]:
+
+
+# lets figure out the popularity of each hotel
+
+ax=trip_df["hotel"].value_counts().plot(kind='bar',colormap="Paired",figsize=(15,5))
+ax.set(xlabel='Hotel', ylabel='Overall Count')
+# We can see the 56 Hotel is most famous one
+
+
+# In[9]:
+
+
+# Where do most of the user from a continent choose hotel?
+user_cont_id = 7   # it varies from 1-7, choose any value from 1-7
+
+fig, (axis1) = plt.subplots(1,1,figsize=(15,12))
+
+count_users = trip_df[trip_df["continent"] == user_cont_id]
+ax=count_users["hotel"].value_counts().plot(kind='bar',colormap="Set2",figsize=(15,5))
+ax.set(xlabel='Hotel', ylabel='Count per continent')
+### user from continent 7 travel most to hotel 2 and 39.
+
+
+# In[10]:
+
+
+from sklearn.model_selection import train_test_split
+import warnings
+import operator
+warnings.filterwarnings("ignore")
+
+X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.33, random_state=42)
+#X_train,y_train,X_test,y_test=np.array(X_train),np.array(y_train),np.array(X_test),np.array(y_test)
+user_past_global={} #get the past visited hotels per user
+for i in range(0,len(X_train)):
+    t=X_train[i]
+    if t[0] in user_past_global.keys():
+        user_past_global[t[0]].append(y_train[i])
+    else:
+        user_past_global[t[0]]=[y_train[i]]
+user_past=user_past_global
+def comparelists(user,freq,top=True):
+    mixture=[]
+    for r in freq:
+        if r in user:
+            continue
+        else:
+            mixture.append(r)
+    if top:
+        return mixture[:1]
+    else:
+        return mixture[:5]
+    
+def update_user_hist(user_dict,key,value):
+    if(key in user_dict.keys()):
+        user_dict[key].append(value)
+    else:
+        user_dict[key]=[value]
+#frequency dictionary storing order of popularity of hotels per continent    
+dict_cont={1: [60, 56, 37, 17, 39, 2, 4, 26, 46, 3, 66, 6, 13, 7, 14, 59, 24, 62,
+               10, 45, 52, 43, 15, 61, 28, 41, 63, 53, 12, 35, 38, 55, 11, 18, 47,
+               8, 49, 23, 51, 57, 64, 16, 20, 65, 42, 5, 30, 27, 34, 48, 40, 29, 36,
+               21, 50, 19, 33, 22, 58, 32, 31, 1, 44, 25, 9, 54], 2: [56, 60, 17,
+            39, 37, 6, 59, 13, 2, 26, 18, 46, 41, 45, 55, 3, 66, 15, 63, 49, 7, 10, 4, 
+           53, 57, 38, 28, 14, 47, 12, 43, 52, 24, 62, 11, 61, 16, 64, 51, 35, 33, 34, 48,
+           58, 50, 19, 32, 23, 8, 5, 29, 42, 20, 65, 27, 40, 30, 1, 31, 22, 9, 36, 54, 21, 44, 25],
+           3: [56, 41, 37, 17, 60, 4, 15, 39, 63, 2, 6, 61, 46, 18, 13, 59, 7, 38, 49, 10, 47, 57, 26, 43, 
+         55, 45, 12, 52, 53, 16, 3, 66, 42, 32, 14, 54, 62, 24, 34, 11, 35, 50, 64, 33, 36, 51, 
+            25, 5, 23, 28, 22, 40, 8, 9, 1, 31, 30, 20, 27, 65, 21, 29, 44, 19, 48, 58], 4: [39, 56, 60, 17, 
+        18, 37, 6, 66, 45, 61, 52, 15, 26, 55, 4, 2, 41, 10, 38, 12, 47, 14, 59, 24, 57, 46, 49, 8, 3, 13, 
+    28, 34, 62, 43, 25, 7, 53, 20, 11, 16, 27, 35, 19, 64, 63, 58, 33, 65, 42, 50, 51, 40, 23, 5, 30, 32, 21,
+    9, 22, 36, 1, 48, 54], 5: [3, 6, 56, 60, 17, 39, 37, 55, 14, 41, 2, 47, 8, 59, 23, 10, 12, 49, 13, 15, 53, 
+    24, 63, 42, 16, 66, 45, 38, 46, 35, 11, 4, 26, 43, 18, 21, 28, 25, 9, 1, 51, 50, 29, 61, 65, 58, 40, 57, 64,
+    62, 27, 36, 20, 31, 30, 34, 22, 52, 54, 48, 7, 5], 6: [37, 53, 4, 17, 18, 39, 64, 60, 24, 15, 3, 6, 8, 47, 46,
+    23, 16, 12, 59, 19, 61, 57, 14, 11, 7, 5, 62, 9, 26, 56, 29, 30, 35, 63, 38, 41, 44, 45, 48, 49, 50, 52, 58, 54, 2], 
+    7: [2, 39, 56, 53, 29, 47, 26, 35, 37, 17, 43, 15, 14, 59, 60, 36, 62, 28, 64, 31, 18, 13, 4, 8, 12, 6, 16, 10, 24, 21, 
+        1, 61, 45, 25, 23, 51, 3, 58, 5, 55, 7, 52, 50, 11, 49, 46, 42, 41, 33, 19, 20, 66]}
+acc=0
+for i in range(0,len(X_test)):
+    e=X_test[i]
+    freq_h=dict_cont[e[1]]
+    if e[0] in user_past.keys():
+         user_h=user_past[e[0]]
+    else:
+        user_h=[]
+    compare=comparelists(user_h,freq_h[:5],True)
+    if y_test[i] in compare:
+        acc+=1
+        update_user_hist(user_past,e[0],y_test[i])
+accuracy=acc*100.0/len(y_test)
+print ("so the accuracy we obtained is %f" % accuracy)
+
+
+# In[ ]:
+
+
+from sklearn.model_selection import cross_val_score
+from sklearn.ensemble import GradientBoostingClassifier
+import xgboost as xgb
+import warnings
+import heapq
+import time
+from sklearn.model_selection import GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+warnings.filterwarnings("ignore")
+import operator
+user_past_global={} #get the past visited hotels per user
+for i in range(0,len(X_train)):
+    t=X_train[i]
+    if t[0] in user_past_global.keys():
+        user_past_global[t[0]].append(y_train[i])
+    else:
+        user_past_global[t[0]]=[y_train[i]]
+################################################### Machine Learning Method #####################################
+def ML_based(pred,user,freq,Top=True):
+    pre=[]
+    for e in pred:
+        if not(e in user):
+            pre.append(e) 
+    if Top:
+        return pre[:1]
+    else:
+        #print pre
+        return pre    
+
